@@ -1,0 +1,79 @@
+name: Build & Release Pixel Dimmer APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Test & Build Signed Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare Release Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "${{ runner.temp }}/release.jks"
+          echo "KEYSTORE_FILE=${{ runner.temp }}/release.jks" >> "$GITHUB_ENV"
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Run Unit Tests & Assemble Release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew testDebugUnitTest assembleRelease \
+            -PciVersionCode=$((100 + GITHUB_RUN_NUMBER)) \
+            -PciVersionName=1.0.${{ github.run_number }} \
+            --no-daemon
+
+      - name: Verify & Stage Release APK
+        run: |
+          test -f app/build/outputs/apk/release/app-release.apk
+          cp app/build/outputs/apk/release/app-release.apk PixelDimmer.apk
+          cp app/build/outputs/apk/release/app-release.apk "PixelDimmer-v1.0.${{ github.run_number }}.apk"
+          ls -lh PixelDimmer.apk "PixelDimmer-v1.0.${{ github.run_number }}.apk"
+
+      - name: Upload APK Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-dimmer-apk
+          path: |
+            PixelDimmer.apk
+            PixelDimmer-v1.0.${{ github.run_number }}.apk
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v1.0.${{ github.run_number }}"
+          gh release create "$TAG" PixelDimmer.apk "PixelDimmer-$TAG.apk" \
+            --latest \
+            --title "Pixel Dimmer $TAG" \
+            --notes "### Pixel Dimmer $TAG (Galaxy S23 Ultra / Android)
+          - **Direct Install APK**: Download **PixelDimmer.apk** below and tap it on your phone to install.
+          - **Features**:
+            - Full-screen pure-white calibration view with **6× zoom loupe** while holding/dragging anywhere.
+            - **Dot**, **Line**, or **Both** pure-black (\`#000000\`) OLED mask modes with adjustable size/thickness and 1-pixel nudge buttons.
+            - **System-Wide Overlay** across all apps (stays non-touchable so touches pass right through) + Quick Settings tile.
+            - **In-App Auto-Updater**: Checks GitHub Releases inside **⚙ Settings** and installs new versions in place."

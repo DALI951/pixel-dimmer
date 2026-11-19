@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Pixel Dimmer</string>
+    <string name="accessibility_service_label">Pixel Dimmer Full-Cover Mode</string>
+    <string name="accessibility_service_description">Optional mode that draws your pure-black pixel or line mask on top of the status bar and system screens without modifying or reading screen content.</string>
+</resources>
