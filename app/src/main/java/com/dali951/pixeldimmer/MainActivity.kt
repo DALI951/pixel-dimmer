@@ -293,66 +293,72 @@ private fun PixelDimmerApp(activity: ComponentActivity) {
                 view.getLocationOnScreen(loc)
                 rootScreenOffset = IntOffset(loc[0], loc[1])
             }
-            .pointerInput(Unit) {
-                var accumX = 0f
-                var accumY = 0f
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    isDragging = true
-                    fingerLocalPos = down.position
-                    accumX = 0f
-                    accumY = 0f
-
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id }
-                            ?: event.changes.firstOrNull()
-                            ?: break
-
-                        if (!change.pressed) {
-                            break
-                        }
-
-                        val delta = change.position - change.previousPosition
-                        change.consume()
-                        fingerLocalPos = change.position
-
-                        val cfg = latestConfig
-                        val scale = if (cfg.fineMode) 0.25f else 1.0f
-                        accumX += delta.x * scale
-                        accumY += delta.y * scale
-
-                        val stepX = accumX.toInt()
-                        val stepY = accumY.toInt()
-                        if (stepX != 0 || stepY != 0) {
-                            accumX -= stepX
-                            accumY -= stepY
-
-                            val maxW = latestPortraitW
-                            val maxH = latestPortraitH
-                            val updated = when (cfg.mode) {
-                                MaskMode.DOT -> cfg.copy(
-                                    dotX = (cfg.dotX + stepX).coerceIn(0, maxW),
-                                    dotY = (cfg.dotY + stepY).coerceIn(0, maxH)
-                                )
-                                MaskMode.LINE -> cfg.copy(
-                                    lineY = (cfg.lineY + stepY).coerceIn(0, maxH)
-                                )
-                                MaskMode.BOTH -> cfg.copy(
-                                    dotX = (cfg.dotX + stepX).coerceIn(0, maxW),
-                                    dotY = (cfg.dotY + stepY).coerceIn(0, maxH),
-                                    lineY = (cfg.lineY + stepY).coerceIn(0, maxH)
-                                )
-                            }
-                            commitConfig(updated)
-                        }
-                    }
-
-                    isDragging = false
-                    fingerLocalPos = null
-                }
-            }
     ) {
+        // Dedicated background drag layer placed behind UI controls
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    var accumX = 0f
+                    var accumY = 0f
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = true)
+                        isDragging = true
+                        fingerLocalPos = down.position
+                        accumX = 0f
+                        accumY = 0f
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                                ?: event.changes.firstOrNull()
+                                ?: break
+
+                            if (!change.pressed) {
+                                break
+                            }
+
+                            val delta = change.position - change.previousPosition
+                            change.consume()
+                            fingerLocalPos = change.position
+
+                            val cfg = latestConfig
+                            val scale = if (cfg.fineMode) 0.25f else 1.0f
+                            accumX += delta.x * scale
+                            accumY += delta.y * scale
+
+                            val stepX = accumX.toInt()
+                            val stepY = accumY.toInt()
+                            if (stepX != 0 || stepY != 0) {
+                                accumX -= stepX
+                                accumY -= stepY
+
+                                val maxW = latestPortraitW
+                                val maxH = latestPortraitH
+                                val updated = when (cfg.mode) {
+                                    MaskMode.DOT -> cfg.copy(
+                                        dotX = (cfg.dotX + stepX).coerceIn(0, maxW),
+                                        dotY = (cfg.dotY + stepY).coerceIn(0, maxH)
+                                    )
+                                    MaskMode.LINE -> cfg.copy(
+                                        lineY = (cfg.lineY + stepY).coerceIn(0, maxH)
+                                    )
+                                    MaskMode.BOTH -> cfg.copy(
+                                        dotX = (cfg.dotX + stepX).coerceIn(0, maxW),
+                                        dotY = (cfg.dotY + stepY).coerceIn(0, maxH),
+                                        lineY = (cfg.lineY + stepY).coerceIn(0, maxH)
+                                    )
+                                }
+                                commitConfig(updated)
+                            }
+                        }
+
+                        isDragging = false
+                        fingerLocalPos = null
+                    }
+                }
+        )
+
         // Preview mask inside the app when the real system overlay is not already on top
         if (!serviceDrawing) {
             val layout = remember(config, portraitW, portraitH) {
@@ -781,6 +787,10 @@ private fun ControlCard(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onToggleEnabled(!(config.enabled && hasOverlayPerm)) }
+                    .padding(end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -984,7 +994,8 @@ private fun NudgeButton(
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    val down = awaitFirstDown(requireUnconsumed = true)
+                    down.consume()
                     latestStep()
                     val repeatJob = scope.launch {
                         delay(340L)
@@ -995,6 +1006,7 @@ private fun NudgeButton(
                     }
                     while (true) {
                         val event = awaitPointerEvent()
+                        event.changes.forEach { it.consume() }
                         if (event.changes.none { it.pressed }) {
                             break
                         }
